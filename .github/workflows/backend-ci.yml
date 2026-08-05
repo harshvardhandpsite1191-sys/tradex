@@ -1,0 +1,44 @@
+name: AI-QROS Backend CI/CD
+
+on:
+  push:
+    branches: [main, develop]
+    paths: ['backend/**']
+  pull_request:
+    branches: [main]
+    paths: ['backend/**']
+
+jobs:
+  test-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          cd backend
+          pip install -r requirements.txt
+          pip install pytest pytest-asyncio httpx
+
+      - name: Run linter
+        run: |
+          cd backend
+          pip install ruff
+          ruff check app/
+
+      - name: Build Docker image
+        run: |
+          cd backend
+          docker build -t aiqros-backend:${{ github.sha }} .
+
+      - name: Deploy to Render (main branch only)
+        if: github.ref == 'refs/heads/main'
+        run: |
+          curl -X POST "${{ secrets.RENDER_DEPLOY_HOOK_BACKEND }}"

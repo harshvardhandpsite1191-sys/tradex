@@ -1,0 +1,55 @@
+# ─── Python ───────────────────────────────────
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+.venv/
+venv/
+env/
+.env
+*.env.local
+
+# ─── Alembic ──────────────────────────────────
+backend/alembic/versions/*.pyc
+
+# ─── Node / Next.js ───────────────────────────
+node_modules/
+frontend/.next/
+frontend/out/
+frontend/build/
+.npm
+
+# ─── IDE ──────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# ─── Docker ───────────────────────────────────
+.docker/
+
+# ─── ML Artifacts ─────────────────────────────
+mlruns/
+mlartifacts/
+*.pkl
+*.joblib
+*.h5
+models/
+
+# ─── Data ─────────────────────────────────────
+data/
+*.csv
+*.parquet
+*.feather
+
+# ─── Logs ─────────────────────────────────────
+*.log
+logs/
+
+# ─── Celery ───────────────────────────────────
+celerybeat-schedule
+celerybeat.pid

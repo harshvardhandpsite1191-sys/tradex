@@ -1,0 +1,49 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aiqros-frontend
+  namespace: ai-qros-prod
+  labels:
+    app: aiqros-frontend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: aiqros-frontend
+  template:
+    metadata:
+      labels:
+        app: aiqros-frontend
+    spec:
+      containers:
+        - name: frontend
+          image: aiqros-frontend:latest
+          ports:
+            - containerPort: 3000
+          env:
+            - name: NEXT_PUBLIC_API_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: aiqros-config
+                  key: api-url
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "256Mi"
+              cpu: "250m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: aiqros-frontend-service
+  namespace: ai-qros-prod
+spec:
+  selector:
+    app: aiqros-frontend
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 3000
+  type: ClusterIP
