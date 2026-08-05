@@ -16,13 +16,24 @@ logger = logging.getLogger(__name__)
 # ─────────────────────────────────────────────
 # Async Engine — used by FastAPI endpoints
 # ─────────────────────────────────────────────
+db_url = settings.DATABASE_URL
+connect_args = {}
+
+if "asyncpg" in db_url:
+    if "sslmode=" in db_url:
+        import re
+        # Strip sslmode from query string as asyncpg doesn't support it directly
+        db_url = re.sub(r'[?&]sslmode=[a-zA-Z0-9_-]+', '', db_url)
+    connect_args["ssl"] = "require"
+
 engine = create_async_engine(
-    settings.DATABASE_URL,
+    db_url,
     echo=settings.DEBUG,
     pool_pre_ping=True,
     pool_recycle=300,
     pool_size=5,
     max_overflow=10,
+    connect_args=connect_args,
 )
 
 # ─────────────────────────────────────────────
