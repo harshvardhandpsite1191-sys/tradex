@@ -154,7 +154,7 @@ async def trigger_bhavcopy_backfill(request: BackfillRequest, run_sync: bool = F
             rows_skipped=result.get("rows_skipped", 0),
         )
 
-    from celery_tasks.data_tasks import backfill_bhavcopy
+        )\n\n    from celery_tasks.data_tasks import backfill_bhavcopy
     task = backfill_bhavcopy.delay(
         request.start_date.isoformat(),
         request.end_date.isoformat(),
@@ -163,6 +163,52 @@ async def trigger_bhavcopy_backfill(request: BackfillRequest, run_sync: bool = F
         status="accepted",
         message=f"Backfill task dispatched for {request.start_date} to {request.end_date}",
         task_id=task.id,
+    )
+
+
+# ═══════════════════════════════════════════════════════════════
+# ANGEL ONE INGESTION ENDPOINTS (bypasses NSE cloud IP block)
+# ═══════════════════════════════════════════════════════════════
+
+@router.post("/ingest/angel/daily", response_model=IngestionResponse,
+             dependencies=[Depends(require_admin)])
+async def trigger_angel_daily_ingest(target_date: Optional[date] = None):
+    """
+    Fetch F&O settlement data for a single trading day via Angel One SmartAPI.
+    Defaults to today. Bypasses NSE's cloud IP restrictions.
+    Runs synchronously — returns row counts directly.
+    """
+    from app.services.angel_ingestion import ingest_fo_via_angel_one
+    from datetime import date as date_cls
+    td = target_date or date_cls.today()
+    result = await ingest_fo_via_angel_one(td)
+    return IngestionResponse(
+        status=result.get("status", "failed"),
+        message=f"Angel One ingestion for {td}: {result.get('rows_fetched', 0)} fetched, {result.get('rows_inserted', 0)} inserted",
+        rows_fetched=result.get("rows_fetched", 0),
+        rows_inserted=result.get("rows_inserted", 0),
+    )
+
+
+@router.post("/ingest/angel/backfill", response_model=IngestionResponse,
+             dependencies=[Depends(require_admin)])
+async def trigger_angel_backfill(request: BackfillRequest):
+    """
+    Backfill F&O data for a date range via Angel One SmartAPI.
+    Skips weekends. Runs synchronously — may take several minutes for long ranges.
+    """
+    if request.start_date > request.end_date:
+        raise HTTPException(status_code=400, detail="start_date must be before end_date")
+    if (request.end_date - request.start_date).days > 30:
+        raise HTTPException(status_code=400, detail="Maximum Angel One backfill range is 30 days per request")
+
+    from app.services.angel_ingestion import ingest_fo_via_angel_one_range
+    result = await ingest_fo_via_angel_one_range(request.start_date, request.end_date)
+    return IngestionResponse(
+        status=result.get("status", "failed"),
+        message=f"Angel One backfill {request.start_date} to {request.end_date}: {result.get('rows_fetched', 0)} fetched",
+        rows_fetched=result.get("rows_fetched", 0),
+        rows_inserted=result.get("rows_inserted", 0),
     )
 
 
