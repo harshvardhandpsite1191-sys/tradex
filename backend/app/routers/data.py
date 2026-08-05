@@ -133,15 +133,26 @@ async def trigger_bhavcopy_ingest():
 
 @router.post("/ingest/bhavcopy/backfill", response_model=IngestionResponse,
              dependencies=[Depends(require_admin)])
-async def trigger_bhavcopy_backfill(request: BackfillRequest):
+async def trigger_bhavcopy_backfill(request: BackfillRequest, run_sync: bool = False):
     """
     Trigger backfill of NSE Bhavcopy for a date range.
-    Dispatched as a background Celery task — returns task ID.
+    Dispatched as a background Celery task, or runs synchronously if run_sync is True.
     """
     if request.start_date > request.end_date:
         raise HTTPException(status_code=400, detail="start_date must be before end_date")
     if (request.end_date - request.start_date).days > 365:
         raise HTTPException(status_code=400, detail="Maximum backfill range is 1 year per request")
+
+    if run_sync:
+        from app.services.data_ingestion import ingest_bhavcopy_range
+        result = await ingest_bhavcopy_range(request.start_date, request.end_date)
+        return IngestionResponse(
+            status="success",
+            message=f"Synchronous backfill completed for {request.start_date} to {request.end_date}",
+            rows_fetched=result.get("rows_fetched", 0),
+            rows_inserted=result.get("rows_inserted", 0),
+            rows_skipped=result.get("rows_skipped", 0),
+        )
 
     from celery_tasks.data_tasks import backfill_bhavcopy
     task = backfill_bhavcopy.delay(
