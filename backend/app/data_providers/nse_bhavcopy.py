@@ -37,6 +37,12 @@ NSE_OLD_BHAVCOPY_URL = (
     "{year}/{month_abbr}/fo{dd}{month_abbr}{year}bhav.csv.zip"
 )
 
+# Unofficial CDN mirrors that are accessible from cloud servers
+NSE_CDN_MIRROR_URL = (
+    "https://archives.nseindia.com/content/fo/"
+    "BhavCopy_NSE_FO_0_0_0_{date_str}_F_0000.csv.zip"
+)
+
 MONTH_ABBR = {
     1: "JAN", 2: "FEB", 3: "MAR", 4: "APR", 5: "MAY", 6: "JUN",
     7: "JUL", 8: "AUG", 9: "SEP", 10: "OCT", 11: "NOV", 12: "DEC"
@@ -50,22 +56,26 @@ NSE_HEADERS = {
         "Chrome/126.0.0.0 Safari/537.36"
     ),
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-    "Accept-Language": "en-US,en;q=0.5",
+    "Accept-Language": "en-IN,en;q=0.9",
     "Referer": "https://www.nseindia.com/",
     "Connection": "keep-alive",
+    "Cache-Control": "no-cache",
+    "Pragma": "no-cache",
 }
 
 
 def _build_url(trade_date: date) -> list[str]:
-    """Build both new and old format URLs for a given trade date — try new first."""
+    """Build all URL variants for a given trade date — try multiple sources."""
     date_str_new = trade_date.strftime("%Y%m%d")
     date_str_dd = trade_date.strftime("%d")
     month_abbr = MONTH_ABBR[trade_date.month]
     year = trade_date.strftime("%Y")
 
     return [
-        # New format (2024+)
+        # New format (2024+) — primary
         NSE_NEW_BHAVCOPY_URL.format(date_str=date_str_new),
+        # CDN mirror — cloud-friendly
+        NSE_CDN_MIRROR_URL.format(date_str=date_str_new),
         # Old format (pre-2024)
         NSE_OLD_BHAVCOPY_URL.format(
             year=year, month_abbr=month_abbr, dd=date_str_dd
@@ -73,19 +83,84 @@ def _build_url(trade_date: date) -> list[str]:
     ]
 
 
-async def _download_bhavcopy(trade_date: date, session: aiohttp.ClientSession) -> Optional[pd.DataFrame]:
+def _fetch_bhavcopy_sync(trade_date: date) -> Optional[pd.DataFrame]:
     """
-    Download and parse NSE F&O Bhavcopy for a given trading date.
-    Returns a DataFrame with standardised column names, or None if not available.
+    Synchronous requests-based fallback for NSE Bhavcopy.
+    Uses a persistent session with cookies to bypass NSE's anti-bot measures.
     """
+    import requests
     urls = _build_url(trade_date)
+
+    session = requests.Session()
+    session.headers.update(NSE_HEADERS)
+
+    # Prime session with NSE homepage cookie
+    try:
+        session.get("https://www.nseindia.com", timeout=10)
+    except Exception:
+        pass
 
     for url in urls:
         try:
-            async with session.get(url, headers=NSE_HEADERS, timeout=aiohttp.ClientTimeout(total=30)) as resp:
+            resp = session.get(url, timeout=30)
+            if resp.status_code != 200 or len(resp.content) < 100:
+                continue
+
+            with zipfile.ZipFile(io.BytesIO(resp.content)) as z:
+                csv_name = z.namelist()[0]
+                with z.open(csv_name) as f:
+                    df = pd.read_csv(f)
+
+            df.columns = [c.strip().upper() for c in df.columns]
+            df = df[df["SYMBOL"].isin(["NIFTY", "BANKNIFTY", "SENSEX"])]
+            df = df[df["INSTRUMENT"].isin(["OPTIDX", "OPTSTK"])]
+
+            rename_map = {
+                "SYMBOL": "underlying",
+                "EXPIRY_DT": "expiry_date",
+                "STRIKE_PR": "strike",
+                "OPTION_TYP": "option_type",
+                "OPEN": "open",
+                "HIGH": "high",
+                "LOW": "low",
+                "CLOSE": "close",
+                "SETTLE_PR": "settle_price",
+                "CONTRACTS": "contracts",
+                "OPEN_INT": "oi",
+                "CHG_IN_OI": "change_oi",
+                "TIMESTAMP": "trade_date",
+                "VAL_IN_LAKH": "value_lakh",
+            }
+            df = df.rename(columns={k: v for k, v in rename_map.items() if k in df.columns})
+            df["data_source"] = "NSE_BHAVCOPY"
+
+            logger.info("bhavcopy_sync_downloaded", date=trade_date.isoformat(), url=url, rows=len(df))
+            return df
+
+        except Exception as e:
+            logger.warning("bhavcopy_sync_url_failed", url=url, error=str(e))
+            continue
+
+    return None
+
+
+async def _download_bhavcopy(trade_date: date, session: aiohttp.ClientSession) -> Optional[pd.DataFrame]:
+    """
+    Download and parse NSE F&O Bhavcopy for a given trading date.
+    Tries async aiohttp first, then falls back to synchronous requests session
+    (which handles NSE cookies better on cloud IPs).
+    """
+    urls = _build_url(trade_date)
+
+    # Try async first (fast path)
+    for url in urls:
+        try:
+            async with session.get(
+                url, headers=NSE_HEADERS,
+                timeout=aiohttp.ClientTimeout(total=15)
+            ) as resp:
                 if resp.status != 200:
                     continue
-
                 content = await resp.read()
                 if len(content) < 100:
                     continue
@@ -95,44 +170,36 @@ async def _download_bhavcopy(trade_date: date, session: aiohttp.ClientSession) -
                     with z.open(csv_name) as f:
                         df = pd.read_csv(f)
 
-                # Standardise column names (old vs new format differ slightly)
                 df.columns = [c.strip().upper() for c in df.columns]
-
-                # Filter to NIFTY, SENSEX, BANKNIFTY options only
                 df = df[df["SYMBOL"].isin(["NIFTY", "BANKNIFTY", "SENSEX"])]
                 df = df[df["INSTRUMENT"].isin(["OPTIDX", "OPTSTK"])]
 
-                # Rename columns to our schema
                 rename_map = {
-                    "SYMBOL": "underlying",
-                    "EXPIRY_DT": "expiry_date",
-                    "STRIKE_PR": "strike",
-                    "OPTION_TYP": "option_type",
-                    "OPEN": "open",
-                    "HIGH": "high",
-                    "LOW": "low",
-                    "CLOSE": "close",
-                    "SETTLE_PR": "settle_price",
-                    "CONTRACTS": "contracts",
-                    "OPEN_INT": "oi",
-                    "CHG_IN_OI": "change_oi",
-                    "TIMESTAMP": "trade_date",
-                    "VAL_IN_LAKH": "value_lakh",
+                    "SYMBOL": "underlying", "EXPIRY_DT": "expiry_date",
+                    "STRIKE_PR": "strike", "OPTION_TYP": "option_type",
+                    "OPEN": "open", "HIGH": "high", "LOW": "low", "CLOSE": "close",
+                    "SETTLE_PR": "settle_price", "CONTRACTS": "contracts",
+                    "OPEN_INT": "oi", "CHG_IN_OI": "change_oi",
+                    "TIMESTAMP": "trade_date", "VAL_IN_LAKH": "value_lakh",
                 }
                 df = df.rename(columns={k: v for k, v in rename_map.items() if k in df.columns})
                 df["data_source"] = "NSE_BHAVCOPY"
-
-                logger.info(
-                    "bhavcopy_downloaded",
-                    date=trade_date.isoformat(),
-                    url=url,
-                    rows=len(df),
-                )
+                logger.info("bhavcopy_downloaded", date=trade_date.isoformat(), url=url, rows=len(df))
                 return df
 
         except Exception as e:
             logger.warning("bhavcopy_url_failed", url=url, error=str(e))
             continue
+
+    # Async failed — try synchronous requests session (cookie-aware)
+    logger.info("bhavcopy_async_failed_trying_sync", date=trade_date.isoformat())
+    try:
+        loop = asyncio.get_event_loop()
+        df = await loop.run_in_executor(None, _fetch_bhavcopy_sync, trade_date)
+        if df is not None:
+            return df
+    except Exception as e:
+        logger.warning("bhavcopy_sync_also_failed", date=trade_date.isoformat(), error=str(e))
 
     logger.warning("bhavcopy_not_found", date=trade_date.isoformat())
     return None
