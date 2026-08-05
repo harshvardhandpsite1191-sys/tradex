@@ -12,14 +12,14 @@ from app.db.database import get_db
 from app.models.behaviour import MarketRegime
 from app.auth.auth import require_admin, require_viewer
 
+from pydantic import BaseModel
+
 router = APIRouter(prefix="/regimes", tags=["Regime Classification"])
 
 
 class RegimeResponse(BaseModel):
     pass  # We'll use dictionaries for simple output
 
-# Pydantic is required for standard validation, but since we keep imports light, we can use simple responses.
-from pydantic import BaseModel
 
 class RegimeDetail(BaseModel):
     symbol: str
