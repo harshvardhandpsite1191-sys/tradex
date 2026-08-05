@@ -102,6 +102,8 @@ def fetch_historical_global_data(
                 continue
 
             data = data.reset_index()
+            if isinstance(data.columns, pd.MultiIndex):
+                data.columns = data.columns.get_level_values(0)
             data.columns = [c.lower() for c in data.columns]
             data["factor_name"] = factor_name
             data["ticker"] = ticker
