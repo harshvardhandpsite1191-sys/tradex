@@ -38,7 +38,7 @@ mlartifacts/
 *.pkl
 *.joblib
 *.h5
-models/
+/models/
 
 # ─── Data ─────────────────────────────────────
 data/
