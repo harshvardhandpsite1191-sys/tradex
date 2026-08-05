@@ -49,7 +49,7 @@ evidently==0.4.30
 # ── Data Providers ───────────────────────────────────────────
 upstox-python-sdk>=2.3.0       # Upstox: live option chain, tick data, live snapshots
 yfinance>=0.2.40               # Global markets daily OHLCV (S&P500, Nikkei, Brent, etc.)
-SmartApi>=1.3.6                # Angel One SmartAPI: historical F&O candle data (free)
+smartapi-python>=1.3.6         # Angel One SmartAPI: historical F&O candle data (free)
 pyotp>=2.9.0                   # TOTP for Angel One 2FA auth
 requests>=2.31.0               # HTTP client for NSE Bhavcopy downloads
 APScheduler>=3.10.4            # In-process scheduler (replaces separate Celery Beat process)
