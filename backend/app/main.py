@@ -73,6 +73,10 @@ async def lifespan(app: FastAPI):
     async with AsyncSessionLocal() as db:
         await seed_knowledge_base(db)
 
+    # 5b. Seed rich demo market intelligence (Regimes, Expiries, Signals, Options)
+    from app.db.seed_demo import seed_demo_data
+    await seed_demo_data()
+
     # 6. Setup TimescaleDB hypertables for Phase 2 time-series tables
     await create_hypertable_if_timescale("ohlcv_candles", "timestamp", "7 days")
     await create_hypertable_if_timescale("option_settlements", "trade_date", "30 days")

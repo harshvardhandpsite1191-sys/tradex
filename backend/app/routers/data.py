@@ -212,6 +212,24 @@ async def trigger_angel_backfill(request: BackfillRequest):
     )
 
 
+@router.post("/seed/demo", response_model=IngestionResponse)
+async def trigger_demo_seed(force: bool = False):
+    """
+    Seed rich demo market intelligence (Regimes, Expiries, Signals, Options chains).
+    Allows setting force=true to re-seed. Publicly accessible for instant demo setup.
+    """
+    from app.db.seed_demo import seed_demo_data
+    result = await seed_demo_data(force=force)
+    counts = result.get("counts", {})
+    total_inserted = sum(counts.values()) if isinstance(counts, dict) else 0
+    return IngestionResponse(
+        status=result.get("status", "success"),
+        message=result.get("message", f"Demo intelligence seeded: {total_inserted} records inserted."),
+        rows_fetched=total_inserted,
+        rows_inserted=total_inserted,
+    )
+
+
 @router.post("/ingest/global", response_model=IngestionResponse,
              dependencies=[Depends(require_admin)])
 async def trigger_global_ingest():
